@@ -1,0 +1,538 @@
+#platform "uLCD-43PT"
+
+// This program reads a Dallas DS1307 clock chip
+// connected to the I2C port. The time is shown as a
+// "digital style" 7 segment representation of a clock.
+// The time can be set with the keypad, checking is
+// done to ensure that the set time is legal.
+// The demo uses GFX2DEMO.GCI to make it easy to get
+// going, however it would look much nicer with some
+// better graphical elements.
+
+#inherit "4DGL_16bitColours.fnc"
+
+#inherit "keypad\\keypad.inc"
+
+#constant ICMODE 0      // leanest memory usage, slowest operation, seeks to each image. Adequate for most purposes.
+
+#constant FALSE, TRUE   // FALSE=0, TRUE=1
+
+#constant SEG7      0
+
+#constant SECONDS   0       //indicies to clock.time
+#constant MINUTES   1
+#constant HOURS     2
+
+#constant MONTHS    2
+#constant DAYS      1
+#constant YEARS     0       //indicies to calendar.date
+
+// clock chip registers
+//-------------------- DS1307 Register Definitions -----------------------------
+#constant REGCTRL    7                      // DS1307 register
+#constant REGYEAR    6                      // DS1307 register
+#constant REGMONTH   5                      // DS1307 register
+#constant REGDATE    4                      // DS1307 register
+#constant REGWDAY    3                      // DS1307 register
+#constant REGHOUR    2                      // DS1307 register
+#constant REGMINUTE  1                      // DS1307 register
+#constant REGSECOND  0                      // DS1307 register
+#constant REGRAM0    8
+#constant DS1307     0x68            // I2C address of DS1307
+#constant DS1307RD   ((DS1307 << 1) | 1)               // 0 write 1 read
+#constant DS1307WR   ((DS1307 << 1) | 0)               // 0 write 1 read
+
+// Keypad buttons - action values
+#constant EXITBTN   'e'
+#constant TIMEBTN   't'
+#constant DATEBTN   'd'
+#constant CHECKBTN  's'
+
+#constant SEG7_BG_COLOUR 0x0841     // 7 seg display background colour
+
+// max date/time register value for edit check (BCD)
+#DATA
+    byte maxtime 0x59, 0x59, 0x23
+    byte maxdate 0x99, 0x31, 0x12
+    byte montab  0x31, 0x29, 0x30, 0x31, 0x30, 0x31, 0x31, 0x30, 0x31, 0x30, 0x31
+#END
+
+// translate edit positions to required register
+#DATA
+    word timexlat HOURS, MINUTES, SECONDS
+    word datexlat MONTHS, DAYS, YEARS
+#END
+
+var editState;                   // edit state index (1..3)
+var hKpad, hDigits;
+var keyDown;
+
+
+// I2C read/write funcs
+func readbyte(var address)                      // read a single byte from the required register on the uFPU64
+    var b;
+
+    I2C_Start();                                // Generate Start condition
+    I2C_Write(DS1307WR);                        // send control byte for Write
+    I2C_Write(LObyte(address));                 // Send register address
+    I2C_Restart();                              // Generate Start condition
+    I2C_Write(DS1307RD);                        // send control byte for Read
+    b := I2C_Read();                            // read the byte
+    I2C_Nack();                                 // finished reading, send Not Ack
+    I2C_Stop();                                 // Send Stop Condition
+
+    return b;                                   // return the register value
+endfunc
+
+func writebyte(var register, var value)         // write a single byte to the required register on the uFPU64
+    I2C_Start();                                // Generate Start condition
+    I2C_Write(DS1307WR);                        // send slave address
+    I2C_Write(register);                        // select the register
+    I2C_Write(value);                           // save the value in selected register
+    I2C_Stop();                                 // finished with bus
+endfunc
+
+func bcd2bin(var bcd)
+    return 10 * ((bcd & 0xf0) >> 4) + (bcd & 0x0f);
+endfunc
+
+// Keypad edit routines
+func TimeKeypad(var state, var key)
+    var private charpos;
+    var keyval;
+    var reg;
+
+    keyval := key - '0';                          // get the key val
+    reg := timexlat[state - 1];                     // point to correct register
+    Clock.time[reg] := ((Clock.time[reg] << 4) & 0xF0) + keyval;
+    Clock.edit &= ~(charpos << ((state - 1) << 1)); // modify the underscore
+    charpos := 1;
+    // update 7seg display
+    Clock();
+endfunc
+
+func DateKeypad(var state, var key)
+    var private charpos;
+    var keyval;
+    var reg;
+
+    keyval := key - '0';                          // get the key val
+    reg := datexlat[state - 1];                         // point to correct register
+    Calendar.date[reg] := ((Calendar.date[reg] << 4) & 0xF0) + keyval;
+    Calendar.edit &= ~(charpos << ((state - 1) << 1)); // modify the underscore
+    charpos := 1;
+    // update 7seg display
+    Calendar();
+endfunc
+
+// show time normally if edit==0, else show required underscore.
+// each bit in var edit coresponds to an underline displayed, bit5 is
+// digit 1 downto bit 0 = digit 6
+func Clock()
+    var private edit;                                           // editing mode, bits 5:0 selects uderscores for digits 6:1
+    var private time[3];                                        // time in BCD format, coresponds to clock registers SECONDS,MINUTES,HOURS,DAYS,MONTHS,YEARS
+    var k, n, xpos, regptr;
+
+    #constant X 22                                              // x position for time
+    #constant Y 40                                              // y position for time
+    #constant W 22                                              // digit width
+
+    img_Enable(hDigits, SEG7);                                  // enable the 7seg display while we display it
+    n := 0;
+    xpos := X;                                                  // set starting x
+    regptr := HOURS;                                            // start at hours
+    while (n < 6)
+        img_SetPosition(hDigits, SEG7, xpos, Y);                // set position for digit
+        if ((edit >> n) & 1)                                    // if editing digit,
+            k := 11;                                            // select underscore character
+        else
+            k := time[regptr];                                  // else get required time register
+            if (!(n & 1)) k := k >> 4;                          // get HI nibble if HI digit
+        endif
+
+        img_SetWord(hDigits, SEG7, IMAGE_INDEX, k & 0xf);       // select required digit
+        img_Show(hDigits, SEG7);                                // show the image
+
+        xpos += W;
+        n++;
+        if ((n == 2) || (n == 4))                               // when required,
+            regptr--;                                           // decrement register pointer
+            xpos += 4;
+            gfx_RectangleFilled(xpos, Y + 10, xpos + 4, Y + 14, ORANGE);  // place colon
+            gfx_RectangleFilled(xpos, Y + 20, xpos + 4, Y + 24, ORANGE);
+            xpos += 10;
+        endif
+    wend
+
+    img_Disable(hDigits, SEG7);                                   // we're done displaying, disable the 7seg display
+
+endfunc
+
+// show date normally if edit==0, else show required underscore.
+// each bit in var edit coresponds to an underline displayed, bit5 is
+// digit 1 downto bit 0 = digit 6
+func Calendar()
+    var private edit;                                           // editing mode, bits 5:0 selects uderscores for digits 6:1
+    var private date[3];                                        // date in BCD format, coresponds to clock registers DAYS,MONTHS,YEARS
+    var k, n, xpos, regptr;
+
+    #constant X 22                                              // x position for time
+    #constant Y 110                                              // y position for time
+    #constant W 22                                              // digit width
+
+    img_Enable(hDigits, SEG7);                                    // enable the 7seg display while we display it
+    n := 0;
+    xpos := X;                                                  // set starting x
+    regptr := MONTHS;                                           // start at months
+    while (n < 6)
+        img_SetPosition(hDigits, SEG7, xpos, Y);                  // set position for digit
+        if ((edit >> n) & 1)                                   // if editing digit,
+            k := 11;                                            // select underscore character
+        else
+            k := date[regptr];                                  // else get required date register
+            if (!(n & 1)) k := k >> 4;                          // get HI nibble if HI digit
+            //print("k= ",[HEX2] k);
+        endif
+
+        img_SetWord(hDigits, SEG7, IMAGE_INDEX, k & 0xf);            // select required digit
+        img_Show(hDigits, SEG7);                                  // show the image
+
+        xpos += W;
+        n++;
+        if ((n == 2) || (n == 4))                               // when required,
+            regptr--;                                           // decrement register pointer
+            xpos += 3;
+            gfx_RectangleFilled(xpos, Y + 10, xpos + 3, Y + 24, ORANGE);  // place date-sep
+            xpos += 10;
+        endif
+    wend
+    img_Disable(hDigits, SEG7);                                   // we're done displaying, disable the 7seg display
+
+endfunc
+
+func checkClockRegisters()
+    var reg, retval := TRUE;
+
+    if(editState > 0)
+        reg := timexlat[editState - 1];
+        if (Clock.time[reg] > maxtime[reg])         // check for sensible value
+            showMsg("Invalid time entry");
+            editState--;                            // and backup so we stay in current edit field
+            Clock.time[reg] := 0;   // zero the holding register ready
+            retval := FALSE;
+        endif
+    endif
+
+    return retval;
+endfunc
+
+func checkDateRegisters()
+    var reg, chk;
+    var retval := TRUE;
+
+    if(editState > 0)
+        reg := datexlat[editState - 1];
+        chk := maxdate[reg];
+        if (reg == DAYS) chk := montab[bcd2bin(Calendar.date[MONTHS]) - 1];
+        if ((Calendar.date[reg] == 0) || (Calendar.date[reg] > chk))       // check for sensible value
+            showMsg("Invalid date entry");
+            editState--;                                // and backup so we stay in current edit field
+            Calendar.date[reg] := 0;    // zero the holding register ready
+            retval := FALSE;
+        endif
+    endif
+
+    return retval;
+endfunc
+
+// display messge for 2sec
+func showMsg(var msg)
+    var k, len;
+
+    txt_FGcolour(RED);
+    txt_BGcolour(GRAY);
+
+    for (k := 1; k < 5; k++)
+        txt_MoveCursor(14, 1);
+        putstr(msg);
+        pause(500);
+
+        // Clear msg
+        len := strlen(msg);
+        txt_MoveCursor(14, 1);
+        while (--len >= 0)
+            putch(' ');
+        wend
+        pause(500);
+    next
+endfunc
+
+func setkeystate(var key, var idx)
+    img_SetWord(hKpad, key, IMAGE_INDEX, idx);
+    img_Show(hKpad, key) ;
+endfunc
+
+func kbDown(var key)
+    var keyval;
+
+    keyval := kPadKeys[key - 1];
+    setkeystate(key, 1) ;
+    keyDown := key;
+
+    return keyval;
+endfunc
+
+func main()
+    var bTimeEdit := FALSE;
+    var bDateEdit := FALSE;
+    var state, lastKey;
+    var exit;
+    var x, y;
+    var ix, key, tt;
+    var retry := 10;
+
+    while (retry-- && !file_Mount());                                // mount the drive
+    if (!retry)
+        putstr("Mount Failed!");
+        pause(2000);
+        return -1;                                                     // exit if can't mount
+    endif
+
+    gfx_ScreenMode(LANDSCAPE);
+
+    // Build the image controls using required mode, returning a pointer to the structure allocations
+    hKpad := file_LoadImageControl(kpad_dat, kpad_img, ICMODE);
+    hDigits := file_LoadImageControl("digits.dat", "digits.gci", ICMODE);
+    if ((hKpad == 0) || (hDigits == 0))
+        putstr("Image file(s) missing");
+        pause(2000);
+        return -1;                                                     // exit if can't load image control
+    endif
+
+    I2C_Open(I2C_SLOW);                                             // 100khz
+
+    // initialize the RTC
+
+    writebyte(REGCTRL, 0);           // reset the RTC (disable SQW)
+
+    // Make sure clock running
+    tt := readbyte(REGSECOND);
+    writebyte(REGSECOND, tt & 0x7f);
+
+    gfx_Cls();
+
+    editState := 0;
+    Clock.edit := 0;
+    Calendar.edit := 0;
+
+    gfx_Panel(PANEL_RAISED, 0, 0, 479, 25, DARKBLUE);                // title bar
+    gfx_Panel(PANEL_RAISED, 0, 26, 479, 270, GRAY);                   // main window panel
+    gfx_MoveTo(180, 7);
+    txt_Opacity(OPAQUE);
+    txt_BGcolour(DARKBLUE);
+    txt_FGcolour(CYAN);
+    putstr("Set Time and Date");                                             // place the title
+
+    // 7 seg display panel
+    gfx_Panel(PANEL_SUNKEN, 15, 32, 170, 50, GRAY);
+    gfx_Panel(PANEL_RAISED, 19, 36, 162, 42, SEG7_BG_COLOUR);
+    gfx_Panel(PANEL_SUNKEN, 15, 102, 170, 50, GRAY);
+    gfx_Panel(PANEL_RAISED, 19, 106, 162, 42, SEG7_BG_COLOUR);
+
+    img_SetPosition(hKpad, iKeyPad, xoffs, yoffs);
+    img_Show(hKpad, iKeyPad) ; // show initial keyboard
+
+    touch_Set(TOUCH_ENABLE);                                        // enable the touch screen
+    x := img_GetWord(hKpad, iKeyPad, IMAGE_WIDTH);
+    y := img_GetWord(hKpad, iKeyPad, IMAGE_HEIGHT);
+    touch_DetectRegion(xoffs, yoffs, xoffs + x, yoffs + y);         // Keypad region only (for now)
+
+    // set to enable touch, only need to do this once
+    for (ix := iKeyPad + 1; ix <= iKeyPad + KbButtons; ix++)
+        x := img_GetWord(hKpad, ix, IMAGE_XPOS) + xoffs;
+        y := img_GetWord(hKpad, ix, IMAGE_YPOS) + yoffs;
+        img_SetPosition(hKpad, ix, x, y);
+        tt := (img_GetWord(hKpad, ix, IMAGE_FLAGS) | I_STAYONTOP) & ~I_TOUCH_DISABLE;
+        img_SetWord(hKpad, ix, IMAGE_FLAGS, tt);
+    next
+
+    // stay in loop til quit button hit
+    lastKey := -1;
+    while (!exit)
+        if(!(bDateEdit || bTimeEdit))                       // if we're not editing
+            // Read and set clock
+            tt := readbyte(REGSECOND);
+            if (tt != Clock.time[SECONDS])
+                Clock.time[SECONDS] := tt;
+                tt := readbyte(REGMINUTE);
+                Clock.time[MINUTES] := tt;
+                tt := readbyte(REGHOUR);
+                Clock.time[HOURS] := tt & 0x7f;
+                Clock();                                        // Updatae clock
+
+                // Read and set date
+                tt := readbyte(REGMONTH);
+                Calendar.date[MONTHS] := tt;
+                tt := readbyte(REGDATE);
+                Calendar.date[DAYS] := tt;
+                tt := readbyte(REGYEAR);
+                Calendar.date[YEARS] := tt;
+                Calendar();                                     // update the date
+            endif
+        endif
+
+        // Maybe redo last state & button press
+        if (lastKey == -1)
+            state := touch_Get(TOUCH_STATUS);               // get touchscreen status
+            ix := img_Touched(hKpad, -1);
+
+            // Nothing to do if no button press
+            if (ix == -1) continue;
+        else
+            state := NOTOUCH;
+        endif
+
+        //-----------------------------------------------------------------------------------------
+        // Editing on key press
+        if (state == TOUCH_PRESSED)
+            if ((ix >= iKeyPad) && (ix <= iKeyPad + KbButtons))
+                key := kbDown(ix);
+                if (bTimeEdit && (key >= '0') && (key <= '9'))            // if number was touched,
+                    TimeKeypad(editState, key);           // update keypad
+                endif
+                if (bDateEdit && (key >= '0') && (key <= '9'))
+                    DateKeypad(editState, key);
+                endif
+            endif
+        endif
+
+        //-----------------------------------------------------------------------------------------
+        // Check for lastKey repeat or touch release
+        if ((lastKey != -1) || (state == TOUCH_RELEASED))
+            if (lastKey == -1)
+                ix := keyDown;
+                if (keyDown != -1)
+                    setkeystate(keyDown, 0);
+                    keyDown := -1;
+                endif
+                // No key if no image
+                if (ix != -1)
+                    key := kPadKeys[ix - 1];
+                else
+                    key := -1;
+                endif
+            else
+                // Have a previous depressed key
+                key := lastKey;
+            endif
+
+            // Dispatch key action on release
+            lastKey := -1;           // Reset possible lastKey (redo edit)
+            switch (key)
+            case -1:
+                // Nothing to do
+                break;
+
+            case EXITBTN:
+                if(!(bDateEdit || bTimeEdit))              // if we're not editing
+                    exit := 1;                             // OK to exit
+                else
+                    showMsg("Date/Time not set");
+                endif
+                break;
+
+            case CHECKBTN:                               // if check button hit
+                if (bTimeEdit)
+                    if (checkClockRegisters())              // if last edit was ok
+                        // Update display
+                        Clock();
+
+                        // Update RTC
+                        writebyte(REGSECOND, 0x80);         // Hold RTC
+                        tt := Clock.time[HOURS];            // in BCD form
+                        writebyte(REGHOUR, tt & 0x3f);      // 24hr clock
+                        tt := Clock.time[MINUTES];          // in BCD form
+                        writebyte(REGMINUTE, tt);
+                        tt := Clock.time[SECONDS];          // in BCD form
+                        writebyte(REGSECOND, tt & 0x7f);    // Resume RTC
+
+                        bTimeEdit := FALSE;                 // Reset edit state
+                        Clock.edit := 0;
+                        editState := 0;
+                    else
+                        lastKey := TIMEBTN;                 // else error, redo current edit phase
+                    endif
+                 endif
+
+                 if (bDateEdit)
+                     if(checkDateRegisters())               // if last edit was ok
+                        // Update display
+                        Calendar();
+
+                        // Update RTC
+                        tt := Calendar.date[YEARS];         // in BCD form
+                        writebyte(REGYEAR, tt);
+                        tt := Calendar.date[MONTHS];        // in BCD form
+                        writebyte(REGMONTH, tt);
+                        tt := Calendar.date[DAYS];          // in BCD form
+                        writebyte(REGDATE, tt);
+
+                        bDateEdit := FALSE;                 // Reset edit state
+                        Calendar.edit := 0;
+                        editState := 0;
+                    else
+                        lastKey := DATEBTN;                 // else error, redo current edit phase
+                    endif
+                endif
+                break;
+
+            case TIMEBTN:
+                bTimeEdit := TRUE;
+                bDateEdit := FALSE;
+
+                if (checkClockRegisters())                      // check for legal values
+                    if (++editState == 4) editState := 1;                    // cycle through the edit fields
+                    Clock.edit := 3 << ((editState - 1) << 1);              // set required bits high in edit register
+                    TimeKeypad.charpos := 2;                                // start edit at least significant digit
+                    Clock.time[timexlat[editState - 1]] := 0;                   // zero the holding register ready
+
+                    Clock();
+                else
+                    // Redo last field
+                    lastKey := key;
+                endif
+
+                break;
+
+            case DATEBTN:
+                bDateEdit := TRUE;
+                bTimeEdit := FALSE;
+
+                if (checkDateRegisters())                     // check for legal values
+
+                    if (++editState == 4) editState := 1;                   // cycle through the edit fields
+                    Calendar.edit := 3 << ((editState - 1) << 1);           // set required bits high in edit register
+                    DateKeypad.charpos := 2;                                // start edit at least significant digit
+                    Calendar.date[datexlat[editState - 1]] := 0;            // zero the holding register ready
+
+                    Calendar();
+                else
+                    // Redo lat field
+                    lastKey := key;
+                endif
+                break;
+
+            endswitch
+        endif
+    wend
+
+    // Return to caller - clock set
+    gfx_Cls();
+    I2C_Close();
+
+    touch_Set(TOUCH_DISABLE);
+
+    return 0;
+
+endfunc
+

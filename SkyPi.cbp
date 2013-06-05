@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<CodeBlocks_project_file>
+	<FileVersion major="1" minor="6" />
+	<Project>
+		<Option title="SkyPi" />
+		<Option pch_mode="2" />
+		<Option compiler="gcc" />
+		<Build>
+			<Target title="Debug">
+				<Option output="bin/Debug/SkyPi" prefix_auto="1" extension_auto="1" />
+				<Option object_output="obj/Debug/" />
+				<Option type="1" />
+				<Option compiler="gcc" />
+				<Option parameters="ttyUSB0 115200" />
+				<Compiler>
+					<Add option="-g" />
+					<Add directory="./Include" />
+				</Compiler>
+				<Linker>
+					<Add library="rt" />
+				</Linker>
+			</Target>
+			<Target title="Release">
+				<Option output="bin/Release/SkyPi" prefix_auto="1" extension_auto="1" />
+				<Option object_output="obj/Release/" />
+				<Option type="1" />
+				<Option compiler="gcc" />
+				<Option parameters="ttyUSB0 115200" />
+				<Compiler>
+					<Add option="-O2" />
+				</Compiler>
+				<Linker>
+					<Add option="-s" />
+					<Add library="rt" />
+				</Linker>
+			</Target>
+		</Build>
+		<Compiler>
+			<Add option="-Wall" />
+			<Add directory="./Include" />
+			<Add directory="../Include" />
+		</Compiler>
+		<Unit filename="Include/Picaso_Serial_4DLibrary.h" />
+		<Unit filename="Include/Picaso_Types4D.h" />
+		<Unit filename="Include/Picaso_const4D.h" />
+		<Unit filename="Include/SkyPi.h" />
+		<Unit filename="Lib/Astro.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="Lib/Picaso_Compound4DRoutines.inc" />
+		<Unit filename="Lib/Picaso_Intrinsic4DRoutines.inc" />
+		<Unit filename="Lib/Picaso_Serial_4DLibrary.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="Lib/PlanetTerms.inc" />
+		<Unit filename="Lib/Vsop87.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="SkyPi.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Extensions>
+			<code_completion />
+			<debugger />
+		</Extensions>
+	</Project>
+</CodeBlocks_project_file>

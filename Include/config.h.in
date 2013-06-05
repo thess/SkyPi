@@ -1,0 +1,5 @@
+// the configured options and settings for SkyPi
+
+// Version info from CMake
+#define VERSION_MAJOR @SkyPi_VERSION_MAJOR@
+#define VERSION_MINOR @SkyPi_VERSION_MINOR@

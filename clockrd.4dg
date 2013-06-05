@@ -1,0 +1,84 @@
+#platform "uLCD-43PT"
+
+#inherit "4DGL_16bitColours.fnc"
+
+#constant SECONDS   2       //indicies to clock.time
+#constant MINUTES   1
+#constant HOURS     0
+#constant YEARS     0       //indicies to calendar.date
+#constant MONTHS    1
+#constant DAYS      2
+
+// clock chip registers
+//-------------------- DS1307 Register Definitions -----------------------------
+#constant REGCTRL    7                      // DS1307 register
+#constant REGYEAR    6                      // DS1307 register
+#constant REGMONTH   5                      // DS1307 register
+#constant REGDATE    4                      // DS1307 register
+#constant REGWDAY    3                      // DS1307 register
+#constant REGHOUR    2                      // DS1307 register
+#constant REGMINUTE  1                      // DS1307 register
+#constant REGSECOND  0                      // DS1307 register
+#constant REGRAM0    8
+#constant DS1307     0x68            // I2C address of DS1307
+#constant DS1307RD   ((DS1307 << 1) | 1)               // 0 write 1 read
+#constant DS1307WR   ((DS1307 << 1) | 0)               // 0 write 1 read
+
+var time[3];
+var date[3];
+var sTemp[20];
+
+func clockRead(var sHandle)
+    var tt;
+    var ptr;
+
+    gfx_ScreenMode(LANDSCAPE) ;
+
+    I2C_Open(I2C_SLOW);
+
+    // Read DS1307 clock/calendar
+    tt := readbyte(REGSECOND);
+    time[SECONDS] := tt;
+    tt := readbyte(REGMINUTE);
+    time[MINUTES] := tt;
+    tt := readbyte(REGHOUR);
+    time[HOURS] := tt & 0x7f;
+
+    tt := readbyte(REGMONTH);
+    date[MONTHS] := tt;
+    tt := readbyte(REGDATE);
+    date[DAYS] := tt;
+    tt := readbyte(REGYEAR);
+    date[YEARS] := tt;
+
+    I2C_Close();
+
+    ptr := str_Ptr(date);
+    to(sTemp); str_Printf(&ptr, "%02X-%02X-%02X ");
+    ptr := str_Ptr(time);
+    to(APPEND); str_Printf(&ptr, "%02X:%02X:%02X");
+    //txt_FGcolour(CYAN);
+    //txt_BGColour(BLACK);
+    //print("GMT = ", [STR]sTemp, "\n");
+    // Return date/time in global pre-allocated string
+    str_Copy(sHandle, str_Ptr(sTemp));
+
+    return;
+
+endfunc
+
+func readbyte(var address)                      // read a single byte from the required register on the uFPU64
+    var b;
+
+    I2C_Start();                                // Generate Start condition
+    I2C_Write(DS1307WR);                       // send control byte for Write
+    I2C_Write(LObyte(address));                 // Send register address
+    I2C_Restart();                                // Generate Start condition
+    I2C_Write(DS1307RD);                       // send control byte for Read
+    b := I2C_Read();                            // read the byte
+    I2C_Nack();                                 // finished reading, send Not Ack
+    I2C_Stop();                                 // Send Stop Condition
+
+    return b;                                   // return the register value
+endfunc
+

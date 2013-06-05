@@ -1,0 +1,15 @@
+"keypad" 0000 0000 00 00
+"keypad_0" 3600 0001 01 01
+"keypad_1" 7400 0001 5A 01
+"keypad_2" B200 0001 01 2D
+"keypad_3" D200 0001 2E 2D
+"keypad_4" F200 0001 5A 2D
+"keypad_5" 1200 0002 86 2D
+"keypad_6" 4E00 0002 01 58
+"keypad_7" 6E00 0002 2E 58
+"keypad_8" 8E00 0002 5A 58
+"keypad_9" AE00 0002 01 84
+"keypad_10" CE00 0002 2E 84
+"keypad_11" EE00 0002 5A 84
+"keypad_12" 0E00 0003 86 84
+"keypad_13" 4A00 0003 01 AF
