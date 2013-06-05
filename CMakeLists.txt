@@ -5,14 +5,14 @@ project (SkyPi)
 # The version number.
 set (SkyPi_VERSION_MAJOR 0)
 set (SkyPi_VERSION_MINOR 9)
- 
+
 # configure a header file to pass some of the CMake settings
 # to the source code
 configure_file (
   "${PROJECT_SOURCE_DIR}/Include/config.h.in"
   "${PROJECT_SOURCE_DIR}/Include/config.h"
  )
- 
+
 set (CMAKE_C_FLAGS "-g -O2 -Wall -s")
 
 # Add include path
