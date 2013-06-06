@@ -123,64 +123,27 @@ int csv_parse(char *sLine, char *sElems[], int nElem)
 
     p = sLine;
     n = 0;
-    for ( ; ; )
+    while (TRUE)
     {
-        /* Nothing of use */
-        if ( *p == '\0' )
+        // Nothing of use
+        if (*p == '\0')
             return n;
-        /* Save the string */
+
+        // Save the string
         sElems[n++] = p;
-        /* Find the next field */
-        while ( *p != ',' && *p != '\n' )
+        // Find the next field
+        while ((*p != ',') && (*p != '\n'))
             p++;
-        /* Nothing else of use or too many fields */
-        if ( *p == '\0' || n >= nElem )
+
+        // Nothing else of use or too many fields
+        if ((*p == '\0') || (n >= nElem))
             return n;
-        /* Split the field */
+
+        // Split the field
         *p++ = '\0';
     }
 
 	return  n;
-}
-
-//-------------------------------------------------------------------------------
-// checkCuckoo -- make sounds if it is appropriate
-
-void checkCuckoo(void)
-{
-    int nCuckoo = 0;
-
-    // Check for cuckoo timer expired
-    if (tmLocal.tm_min == 0)
-    {
-        // Chime the hour (12hr clock)
-        if (tmLocal.tm_hour == 0)
-            nCuckoo = 12;
-        else if (tmLocal.tm_hour > 12)
-            nCuckoo = tmLocal.tm_hour - 12;
-        else
-            nCuckoo = tmLocal.tm_hour;
-    } else {
-        // Chime once on the half-hour
-        if (tmLocal.tm_min == 30)
-            nCuckoo = 1;
-    }
-
-    // Play an annoying sound
-    if (nCuckoo > 0)
-    {
-        file_Mount();
-        while (nCuckoo--)
-        {
-            file_PlayWAV("cuckoo.wav");
-            while (snd_Playing() != 0)
-                usleep(100 * 1000);
-            usleep(300 * 1000);
-        }
-        file_Unmount();
-    }
-
-    return;
 }
 
 //-------------------------------------------------------------------------------
@@ -489,13 +452,56 @@ void drawAzAltGrid(int gType)
 }
 
 //-------------------------------------------------------------------------------
+// checkCuckoo -- make sounds if it is appropriate
+
+void checkCuckoo(void)
+{
+    int nCuckoo = 0;
+
+    // Check for cuckoo timer expired
+    if (tmLocal.tm_min == 0)
+    {
+        // Chime the hour (12hr clock)
+        if (tmLocal.tm_hour == 0)
+            nCuckoo = 12;
+        else if (tmLocal.tm_hour > 12)
+            nCuckoo = tmLocal.tm_hour - 12;
+        else
+            nCuckoo = tmLocal.tm_hour;
+    } else {
+        // Chime once on the half-hour
+        if (tmLocal.tm_min == 30)
+            nCuckoo = 1;
+    }
+
+    // Play an annoying sound
+    if (nCuckoo > 0)
+    {
+        file_Mount();
+        snd_Volume(127);
+
+        while (nCuckoo--)
+        {
+            file_PlayWAV("cuckoo.wav");
+            while (snd_Playing() != 0)
+                usleep(100 * 1000);
+            usleep(300 * 1000);
+        }
+        file_Unmount();
+    }
+
+    return;
+}
+
+//-------------------------------------------------------------------------------
 
 int main(int argc, char **argv)
 {
 	int comspeed;
 	int idx, rc;
 	char comport[20];
-	int currentMin, bTouched;
+	int currentMin = 0;
+	int bTouched;
 
 	WORD sHdl;
 	WORD LCDSave = 0;
@@ -605,34 +611,38 @@ restart:
     // This is the main display loop
     while (TRUE)
     {
-        // Start by clearing display
-        gfx_Cls();
+        // Only if display enabled
+        if (LCDSave == 0)
+        {
+            // Start by clearing display
+            gfx_Cls();
 
-        txt_FontID(FONT1);
-        txt_FGcolour(WHITE);
-        txt_BGcolour(BLACK);
+            txt_FontID(FONT1);
+            txt_FGcolour(WHITE);
+            txt_BGcolour(BLACK);
 
-        // Screen grid
-        drawAzAltGrid(1);
+            // Screen grid
+            drawAzAltGrid(1);
 
-        // Get date/time, setup coords
-        ttime = time(NULL);
-        gmtime_r(&ttime, &tmGMT);
+            // Get date/time, setup coords
+            ttime = time(NULL);
+            gmtime_r(&ttime, &tmGMT);
 
-        // Save current display time
-        currentMin = tmGMT.tm_min;
+            // Save current display time
+            currentMin = tmGMT.tm_min;
 
-        // Get Julian date inf
-        JD = jtime(&tmGMT);
+            // Get Julian date inf
+            JD = jtime(&tmGMT);
 
-        // Calculate Sun, Moon, etc. (QuickPlanetCalc := true)
-        calcPlanets(JD, Latitude, Longitude, TRUE);
+            // Calculate Sun, Moon, etc. (QuickPlanetCalc := true)
+            calcPlanets(JD, Latitude, Longitude, TRUE);
 
-        // Plot the star database (no constellation lines)
-        plotStarField("hyg11.csv", FALSE);
+            // Plot the star database (no constellation lines)
+            plotStarField("hyg11.csv", FALSE);
 
-        // Now plot the planets
-        plotPlanets();
+            // Now plot the planets
+            plotPlanets();
+        }
 
         // Enable full-screen touch
         touch_Set(TOUCH_ENABLE);
@@ -670,40 +680,33 @@ restart:
 
         touch_Set(TOUCH_DISABLE);
 
-        // Exit minute loop and reset
+        // Service touch event
         if (bTouched)
-            break;
-
-        // Time for a nap?
-        if (--sleepCount <= 0)
         {
-            // Enable full-screen touch
-            touch_Set(TOUCH_ENABLE);
-            touch_Set(TOUCH_REGIONDEFAULT);
-
-            // Time to turn-off display and wait for touch
-            LCDSave = gfx_Contrast(OFF);
-            do {
-                ttime = time(NULL);
-                localtime_r(&ttime, &tmLocal);
-                // Announce time even when asleep
-                checkCuckoo();
-
-                usleep(100 * 1000);
-            } while (touch_Get(TOUCH_STATUS) != TOUCH_RELEASED);
-
-            // Reset touch
-            touch_Set(TOUCH_REGIONDEFAULT);
-            touch_Set(TOUCH_DISABLE);
+            // Exit minute loop and reset if display on
+            if (LCDSave == 0)
+                break;
 
             // Reset sleep count and turn on display
             sleepCount = SLEEPMINS;
             gfx_Contrast(LCDSave);
             LCDSave = 0;
         } else {
-            // Maybe time to announce hours
-            checkCuckoo();
+            // No touch - check if display on
+            if (LCDSave == 0)
+            {
+                // Time for a nap?
+                if (--sleepCount <= 0)
+                {
+                    // Time to turn-off display and wait for touch
+                    LCDSave = gfx_Contrast(OFF);
+                }
+            }
         }
+
+        // Maybe time to announce hours
+        checkCuckoo();
+
         // Loop back and re-draw current time
     }
 
