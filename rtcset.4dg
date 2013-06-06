@@ -50,6 +50,11 @@
 
 #constant SEG7_BG_COLOUR 0x0841     // 7 seg display background colour
 
+#constant X0    22      // x position of first digit
+#constant YT    40      // y position for time
+#constant YD    110     // y position for date
+#constant WID   22      // digit width
+
 // max date/time register value for edit check (BCD)
 #DATA
     byte maxtime 0x59, 0x59, 0x23
@@ -133,16 +138,12 @@ func Clock()
     var private time[3];                                        // time in BCD format, coresponds to clock registers SECONDS,MINUTES,HOURS,DAYS,MONTHS,YEARS
     var k, n, xpos, regptr;
 
-    #constant X 22                                              // x position for time
-    #constant Y 40                                              // y position for time
-    #constant W 22                                              // digit width
-
     img_Enable(hDigits, SEG7);                                  // enable the 7seg display while we display it
     n := 0;
-    xpos := X;                                                  // set starting x
+    xpos := X0;                                                  // set starting x
     regptr := HOURS;                                            // start at hours
     while (n < 6)
-        img_SetPosition(hDigits, SEG7, xpos, Y);                // set position for digit
+        img_SetPosition(hDigits, SEG7, xpos, YT);                // set position for digit
         if ((edit >> n) & 1)                                    // if editing digit,
             k := 11;                                            // select underscore character
         else
@@ -153,13 +154,13 @@ func Clock()
         img_SetWord(hDigits, SEG7, IMAGE_INDEX, k & 0xf);       // select required digit
         img_Show(hDigits, SEG7);                                // show the image
 
-        xpos += W;
+        xpos += WID;
         n++;
         if ((n == 2) || (n == 4))                               // when required,
             regptr--;                                           // decrement register pointer
             xpos += 4;
-            gfx_RectangleFilled(xpos, Y + 10, xpos + 4, Y + 14, ORANGE);  // place colon
-            gfx_RectangleFilled(xpos, Y + 20, xpos + 4, Y + 24, ORANGE);
+            gfx_RectangleFilled(xpos, YT + 10, xpos + 4, YT + 14, ORANGE);  // place colon
+            gfx_RectangleFilled(xpos, YT + 20, xpos + 4, YT + 24, ORANGE);
             xpos += 10;
         endif
     wend
@@ -176,16 +177,12 @@ func Calendar()
     var private date[3];                                        // date in BCD format, coresponds to clock registers DAYS,MONTHS,YEARS
     var k, n, xpos, regptr;
 
-    #constant X 22                                              // x position for time
-    #constant Y 110                                              // y position for time
-    #constant W 22                                              // digit width
-
     img_Enable(hDigits, SEG7);                                    // enable the 7seg display while we display it
     n := 0;
-    xpos := X;                                                  // set starting x
+    xpos := X0;                                                  // set starting x
     regptr := MONTHS;                                           // start at months
     while (n < 6)
-        img_SetPosition(hDigits, SEG7, xpos, Y);                  // set position for digit
+        img_SetPosition(hDigits, SEG7, xpos, YD);                  // set position for digit
         if ((edit >> n) & 1)                                   // if editing digit,
             k := 11;                                            // select underscore character
         else
@@ -197,12 +194,12 @@ func Calendar()
         img_SetWord(hDigits, SEG7, IMAGE_INDEX, k & 0xf);            // select required digit
         img_Show(hDigits, SEG7);                                  // show the image
 
-        xpos += W;
+        xpos += WID;
         n++;
         if ((n == 2) || (n == 4))                               // when required,
             regptr--;                                           // decrement register pointer
             xpos += 3;
-            gfx_RectangleFilled(xpos, Y + 10, xpos + 3, Y + 24, ORANGE);  // place date-sep
+            gfx_RectangleFilled(xpos, YD + 10, xpos + 3, YD + 24, ORANGE);  // place date-sep
             xpos += 10;
         endif
     wend
@@ -299,6 +296,7 @@ func main()
     endif
 
     gfx_ScreenMode(LANDSCAPE);
+    txt_FontID(FONT3);
 
     // Build the image controls using required mode, returning a pointer to the structure allocations
     hKpad := file_LoadImageControl(kpad_dat, kpad_img, ICMODE);
@@ -327,11 +325,11 @@ func main()
 
     gfx_Panel(PANEL_RAISED, 0, 0, 479, 25, DARKBLUE);                // title bar
     gfx_Panel(PANEL_RAISED, 0, 26, 479, 270, GRAY);                   // main window panel
-    gfx_MoveTo(180, 7);
+    gfx_MoveTo(160, 7);
     txt_Opacity(OPAQUE);
     txt_BGcolour(DARKBLUE);
     txt_FGcolour(CYAN);
-    putstr("Set Time and Date");                                             // place the title
+    putstr("Set Time and Date (UTC)");                                             // place the title
 
     // 7 seg display panel
     gfx_Panel(PANEL_SUNKEN, 15, 32, 170, 50, GRAY);
@@ -444,9 +442,6 @@ func main()
             case CHECKBTN:                               // if check button hit
                 if (bTimeEdit)
                     if (checkClockRegisters())              // if last edit was ok
-                        // Update display
-                        Clock();
-
                         // Update RTC
                         writebyte(REGSECOND, 0x80);         // Hold RTC
                         tt := Clock.time[HOURS];            // in BCD form
@@ -462,13 +457,12 @@ func main()
                     else
                         lastKey := TIMEBTN;                 // else error, redo current edit phase
                     endif
+                    // Update display
+                    Clock();
                  endif
 
                  if (bDateEdit)
                      if(checkDateRegisters())               // if last edit was ok
-                        // Update display
-                        Calendar();
-
                         // Update RTC
                         tt := Calendar.date[YEARS];         // in BCD form
                         writebyte(REGYEAR, tt);
@@ -483,6 +477,8 @@ func main()
                     else
                         lastKey := DATEBTN;                 // else error, redo current edit phase
                     endif
+                    // Update display
+                    Calendar();
                 endif
                 break;
 
@@ -495,13 +491,12 @@ func main()
                     Clock.edit := 3 << ((editState - 1) << 1);              // set required bits high in edit register
                     TimeKeypad.charpos := 2;                                // start edit at least significant digit
                     Clock.time[timexlat[editState - 1]] := 0;                   // zero the holding register ready
-
-                    Clock();
                 else
                     // Redo last field
                     lastKey := key;
                 endif
-
+                // Refresh display
+                Clock();
                 break;
 
             case DATEBTN:
@@ -514,12 +509,12 @@ func main()
                     Calendar.edit := 3 << ((editState - 1) << 1);           // set required bits high in edit register
                     DateKeypad.charpos := 2;                                // start edit at least significant digit
                     Calendar.date[datexlat[editState - 1]] := 0;            // zero the holding register ready
-
-                    Calendar();
                 else
                     // Redo lat field
                     lastKey := key;
                 endif
+                // Refresh display
+                Calendar();
                 break;
 
             endswitch
@@ -529,7 +524,6 @@ func main()
     // Return to caller - clock set
     gfx_Cls();
     I2C_Close();
-
     touch_Set(TOUCH_DISABLE);
 
     return 0;
