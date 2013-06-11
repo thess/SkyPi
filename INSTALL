@@ -1,0 +1,38 @@
+Calculation of Sun, Moon and planet positions and miscellaneous astronomical routines
+were borrowed from Home Planet by John Walker
+
+Build and installation instructions for SkyPi
+=============================================
+
+It is possible to build and execute SkyPi on any Linux system such as Ubuntu with the
+display connected via a serial USB adapter.
+
+Minimal prereqs: build-essential, cmake
+
+$ mkdir build
+$ cd build
+$ cmake ..
+$ make
+
+
+[default installation]
+$ sudo make install
+
+[manually install]
+# Copy SkyPi to /usr/local/bin
+# Copy data/hyg11.csv to /usr/local/lib/SkyPi
+
+Prepare micro SD card for display (FAT16, 2GB Max)
+==================================================
+
+1. Using 4D Workshop (Windows or Wine on Linux)
+   - Compile rtcset.4dg
+   - Compile clockrd.4dg
+
+2. Copy to SD card:
+   - rtcset.4XE
+   - clockrd.4FN
+   - keypad/keypad.dat, keypad/keypad.gci
+   - lcddigits/digits.dat, lcddigits/digits.gci
+   - data/cuckoo.wav
+

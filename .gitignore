@@ -1,0 +1,20 @@
+#
+# From Code::Blocks
+#
+*.layout
+*.depend
+bin
+obj
+
+#
+# From 4D Workshop
+#
+*.4FN
+*.4XE
+*.4DWork
+*.cfg
+
+#
+# CMake
+#
+build

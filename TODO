@@ -1,0 +1,12 @@
+Enhancements to SkyPi (in no particular order)
+==============================================
+
+1. Add command line options for:
+   a) System time / DS1307 support on uLCD
+   b) Latitude & Longitude
+   c) Display sleep times and nap blanking
+   d) Cuckoo enable/disable
+
+2. Add UI for setting lat/long, other options
+
+3. View window and direction
