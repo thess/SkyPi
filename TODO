@@ -6,7 +6,10 @@ Enhancements to SkyPi (in no particular order)
    b) Latitude & Longitude
    c) Display sleep times and nap blanking
    d) Cuckoo enable/disable
+   e) Star database location, constellation lines
 
 2. Add UI for setting lat/long, other options
 
 3. View window and direction
+
+4. [Optional] Use X11 display via Qt

@@ -13,7 +13,7 @@ A lot of credit goes to the following organizations, projects and people from wh
 
 + John Walker - [Home Planet](http://www.fourmilab.ch/homeplanet). Selected routines to calculate sun, moon and planet positions. Nice application on its own.
 
-+ [4D Systems](http://www.4dsystems.com.au) - Excellent products, development tools and support.
++ [4D Systems](http://www.4dsystems.com.au) - Excellent products, development tools and support. A Linux version of the <u>Picaso-Serial-C-Library</u> is included in this package.
 
 + [Raspberry Pi Foundation](http://raspberrypi.org) Hard float (armhf) version of Rasbian (Debian Wheezy).
 
