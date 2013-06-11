@@ -5,9 +5,6 @@
 // "digital style" 7 segment representation of a clock.
 // The time can be set with the keypad, checking is
 // done to ensure that the set time is legal.
-// The demo uses GFX2DEMO.GCI to make it easy to get
-// going, however it would look much nicer with some
-// better graphical elements.
 
 #inherit "4DGL_16bitColours.fnc"
 

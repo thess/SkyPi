@@ -1,6 +1,10 @@
 /*
 
-			Calculate planetary positions using the VSOP87 theory
+	Calculate planetary positions using the VSOP87 theory
+
+	Source: Home Planet for Windows
+	Author: John Walker
+	URL:    http://www.fourmilab.ch/homeplanet/
 
 */
 

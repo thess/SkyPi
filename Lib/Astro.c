@@ -2,6 +2,10 @@
 
 	Astronomical calculation routines
 
+	Source: Home Planet for Windows
+	Author: John Walker
+	URL:    http://www.fourmilab.ch/homeplanet/
+
 */
 
 #include "SkyPi.h"

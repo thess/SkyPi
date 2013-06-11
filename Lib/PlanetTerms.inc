@@ -1,3 +1,13 @@
+/*
+
+	Calculate planetary positions using the VSOP87 theory
+
+	Source: Home Planet for Windows
+	Author: John Walker
+	URL:    http://www.fourmilab.ch/homeplanet/
+
+*/
+
 struct planet planet_info[7]; 	  	/* Calculated planetary information */
 
 struct pTerms { double *termArray; int termCount; };
