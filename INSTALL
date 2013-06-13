@@ -36,3 +36,20 @@ Prepare micro SD card for display (FAT16, 2GB Max)
    - lcddigits/digits.dat, lcddigits/digits.gci
    - data/cuckoo.wav
 
+Command-line options
+====================
+
+RaspPi Realtime Sky Map V0.95
+
+SkyPi [options] [device]
+
+ device    Comms port to which display is attached (default: /dev/ttyAMA0)
+ options:
+   -f file     Path name of starmap DB (default: /usr/local/lib/SkyPi/starmap.csv)
+   -l lat,long Observer decimal latitude & logitude
+   -q          Disable cuckoo chimes
+   -s speed    Serial device baudrate (default: 9600)
+   -t          Use system time instead of LCD clock
+   -w hh:mm    Display wake time (default: 06:30)
+   -z hh:mm    Display sleep time (default: 23:30)
+

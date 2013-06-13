@@ -2,4 +2,4 @@
 
 // Version info from CMake
 #define VERSION_MAJOR 0
-#define VERSION_MINOR 9
+#define VERSION_MINOR 95

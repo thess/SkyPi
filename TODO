@@ -1,7 +1,7 @@
-Enhancements to SkyPi (in no particular order)
-==============================================
+Enhancements to SkyPi (as of 13-Jun-2013 in no particular order)
+================================================================
 
-1. Add command line options for:
+1. Add command line options for: (done 13-Jun-2013)
    a) System time / DS1307 support on uLCD
    b) Latitude & Longitude
    c) Display sleep times and nap blanking
@@ -10,6 +10,9 @@ Enhancements to SkyPi (in no particular order)
 
 2. Add UI for setting lat/long, other options
 
-3. View window and direction
+3. Specify view window and direction
 
 4. [Optional] Use X11 display via Qt
+
+5. Add more/better constellation lines to DB
+

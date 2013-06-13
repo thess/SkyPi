@@ -4,7 +4,7 @@ project (SkyPi)
 
 # The version number.
 set (SkyPi_VERSION_MAJOR 0)
-set (SkyPi_VERSION_MINOR 9)
+set (SkyPi_VERSION_MINOR 95)
 
 # configure a header file to pass some of the CMake settings
 # to the source code
@@ -27,3 +27,7 @@ add_executable(SkyPi SkyPi.c ${HEADERS})
 
 target_link_libraries(SkyPi AstroFuncs PicasoSerial -lrt -lm)
 
+# Installation rules
+install(PROGRAMS ${CMAKE_BINARY_DIR}/SkyPi DESTINATION /usr/local/bin)
+install(FILES ${CMAKE_SOURCE_DIR}/data/hyg11.csv DESTINATION /usr/local/lib/SkyPi
+	RENAME starmap.csv)

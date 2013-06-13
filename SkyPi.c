@@ -90,10 +90,10 @@ void Usage(void)
     fprintf(stderr, "SkyPi [options] [device]\n\n");
     fprintf(stderr, " device    Comms port to which display is attached (default: %s)\n", SERIALDEFAULT);
     fprintf(stderr, " options:\n");
-    fprintf(stderr, "   -f file     Name path to starmap DB (default: %s)\n", HYGDEFAULT);
+    fprintf(stderr, "   -f file     Path name of starmap DB (default: %s)\n", HYGDEFAULT);
     fprintf(stderr, "   -l lat,long Observer decimal latitude & logitude\n");
     fprintf(stderr, "   -q          Disable cuckoo chimes\n");
-    fprintf(stderr, "   -s speed    Serial device baudrate (default: 9600\n");
+    fprintf(stderr, "   -s speed    Serial device baudrate (default: 9600)\n");
     fprintf(stderr, "   -t          Use system time instead of LCD clock\n");
     fprintf(stderr, "   -w hh:mm    Display wake time (default: 06:30)\n");
     fprintf(stderr, "   -z hh:mm    Display sleep time (default: 23:30)\n");

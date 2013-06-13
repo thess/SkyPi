@@ -11,7 +11,7 @@
 				<Option object_output="obj/Debug/" />
 				<Option type="1" />
 				<Option compiler="gcc" />
-				<Option parameters="ttyUSB0 115200" />
+				<Option parameters="-q -t -l 42.38050,-71.53285 -f data/hyg11.csv -s 115200 -z 22:30 /dev/ttyUSB0" />
 				<Compiler>
 					<Add option="-g" />
 					<Add directory="./Include" />
