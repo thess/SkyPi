@@ -29,6 +29,7 @@
 #include <fenv.h>
 #include <ctype.h>
 #include <termios.h>
+#include <sys/stat.h>
 
 #include "SkyPi.h"
 
@@ -36,53 +37,68 @@
 #include "Include/Picaso_const4D.h"
 #include "Include/Picaso_Serial_4DLibrary.h"
 
-//#define PIXPERRAD   171.8873385
-//#define YPixRad  PIXPERRAD
-//#define XPixRad  PIXPERRAD
+// Scale projection to display (180w x 90h)
+#define YPixRad  (272 / dtr(90))
+#define XPixRad  (480 / dtr(180))
 
-#define YPixRad  (272 / dtr(80))
-#define XPixRad  (480 / dtr(120))
-
-// Put display to sleep after NAPMINS minutes if already sleeping
-#define NAPMINS     30
-#define SLEEPHR     23
-#define SLEEPMIN    30
-#define WAKEHR      06
-#define WAKEMIN     30
+#define SERIALDEFAULT   "/dev/ttyAMA0"
+static int comspeed;
+static char comport[20];
 
 #define maxrates 20
 static int  baudrates[maxrates] = {   110,    300,    600,   1200,   2400,   4800,   9600,
                                      14400,  19200,  31250,  38400,  56000,  57600, 115200,
                                      128000, 256000, 300000, 375000, 500000, 600000} ;
 
-#define HYGPATH "/usr/local/lib/SkyPi"
-#define HYGFILE "hyg11.csv"
-
 // Unix time structs
-static char rtcval[24];
 static struct tm tmGMT;
 static struct tm tmLocal;
 static time_t ttime;
+static int useSystemTime;
+static char rtcval[24];
+
+// Location of starmap DB
+#define HYGDEFAULT "/usr/local/lib/SkyPi/starmap.csv"
+static char starMap[200];
+static int bCLines;
 
 // Julian date/time
 static double  JD;
 
 // LatLong of Hudson, MA (in radians)
 static double Latitude = dtr(42.38050);
-static double Longitude = dtr(71.53285);
+static double Longitude = dtr(-71.53285);
 
 // Sleep and cuckoo control
 static int napCount;
 static int sleeping;
+static int bChimes;
+
+// Put display to sleep after napMins minutes if already sleeping
+static int napMins  = 30;
+// Time to sleep and wake
+static int sleepHR  = 23;
+static int sleepMin = 30;
+static int wakeHR   = 06;
+static int wakeMin  = 30;
 
 //-------------------------------------------------------------------------------
 
-void Usage(char *programName)
+void Usage(void)
 {
-	fprintf(stderr,"RaspPi Realtime Sky Map V%d.%d\n\n", VERSION_MAJOR, VERSION_MINOR);
-	fprintf(stderr,"%s ComPort [speed]\n\n",programName);
-	fprintf(stderr," ComPort    Comms port to which display is attached (default ttyAMA0)\n") ;
-	fprintf(stderr," speed      Speed at which to begin (default 9600)\n\n") ;
+    fprintf(stderr, "RaspPi Realtime Sky Map V%d.%d\n\n", VERSION_MAJOR, VERSION_MINOR);
+    fprintf(stderr, "SkyPi [options] [device]\n\n");
+    fprintf(stderr, " device    Comms port to which display is attached (default: %s)\n", SERIALDEFAULT);
+    fprintf(stderr, " options:\n");
+    fprintf(stderr, "   -f file     Name path to starmap DB (default: %s)\n", HYGDEFAULT);
+    fprintf(stderr, "   -l lat,long Observer decimal latitude & logitude\n");
+    fprintf(stderr, "   -q          Disable cuckoo chimes\n");
+    fprintf(stderr, "   -s speed    Serial device baudrate (default: 9600\n");
+    fprintf(stderr, "   -t          Use system time instead of LCD clock\n");
+    fprintf(stderr, "   -w hh:mm    Display wake time (default: 06:30)\n");
+    fprintf(stderr, "   -z hh:mm    Display sleep time (default: 23:30)\n");
+
+    return;
 }
 
 int errCallback(int ErrCode, unsigned char Errbyte)
@@ -111,11 +127,14 @@ void XYFromAzAlt(double az, double alt, int *iX, int *iY)
 
     // use stereographic projection from equator
     CentralAngle = acos(cos(alt) * cos(az));
-    // get altitude in pixels
-    Y = CentralAngle * YPixRad * sin(alt) / sin(CentralAngle);
-
-	//get azimuth in pixels
-    X = CentralAngle * XPixRad * cos(alt) * sin(az) / sin(CentralAngle);
+    // get altitude and azimuth in pixels
+    if (CentralAngle != 0)
+    {
+        Y = CentralAngle * YPixRad * sin(alt) / sin(CentralAngle);
+        X = CentralAngle * XPixRad * cos(alt) * sin(az) / sin(CentralAngle);
+    } else {
+        X = Y = 0.0;
+    }
 
     *iX = 239 + (int)round(X);      // center on screen
     *iY = 271 - (int)round(Y);      // inverty Y coordinate
@@ -135,7 +154,7 @@ void AzAlt(double ra, double dec, double *az, double *alt)
 	latsin = sin(Latitude);
 	latcos = cos(Latitude);
 
-    lha = fixangr(dtr(igmst * 15) - Longitude - ra);
+    lha = fixangr(dtr(igmst * 15) + Longitude - ra);
     *az = atan2(sin(lha), cos(lha) * latsin - tan(dec) * latcos);
     *alt = asin(latsin * sin(dec) + latcos * cos(dec) * cos(lha));
 
@@ -191,18 +210,12 @@ void plotStarField(const char *fname, int bConstellaltions)
     static int iX, iY, iMAG;
     WORD    color;
 
-    // Build path to star database file
-    strcpy(tmpBuf, HYGPATH);
-    if (tmpBuf[strlen(tmpBuf) - 1] != '/')
-        strcat(tmpBuf, "/");
-    strcat(tmpBuf, fname);
-
     // Open DB file
-    fd = fopen(tmpBuf, "r");
+    fd = fopen(fname, "r");
     if (fd == NULL)
     {
-        printf("Cannot open database file: %s\n", tmpBuf);
-        exit(2);
+        printf("Cannot open starmap DB file: %s\nError (%d) - %s\n", fname, errno, strerror(errno));
+        exit(EXIT_FAILURE);
     }
 
     gfx_ClipWindow(0, 0, 479, 271);
@@ -217,14 +230,14 @@ void plotStarField(const char *fname, int bConstellaltions)
         if (n >= sizeof(tmpBuf))
         {
             printf("Line too long: '%s'\n", tmpBuf);
-            exit(2);
+            exit(EXIT_FAILURE);
         }
 
         n = csv_parse(tmpBuf, &starInfo[0], 6);
         if (n != 5)
         {
             printf("Too many fields: %d, %s\n", n, starInfo[0]);
-            exit(2);
+            exit(EXIT_FAILURE);
         }
         // Convert RA, DEC to screen coords
 
@@ -312,7 +325,7 @@ static struct pplanet pp_data[7] = {
     {"sun", YELLOW, 5},
     {"mercury", LIGHTGREY, 3},
     {"venus", LIGHTGREY, 3},
-    {"moon", LIGHTGREY, 4},
+    {"moon", LIGHTGREY, 5},
     {"mars", RED, 3},
     {"jupiter", YELLOW, 3},
     {"saturn", YELLOW, 3}
@@ -326,7 +339,7 @@ void plotPlanets(void)
     gfx_ClipWindow(0, 0, 479, 271);
     gfx_Clipping(ON);
 
-    for (kPlanet = SUN; kPlanet <= SATURN; kPlanet++)
+    for (kPlanet = SATURN; kPlanet >= SUN; kPlanet--)
     {
 #ifdef DEBUG_PRINT
         printf("%-10s: RA = %.02f, DEC = %.02f", pp_data[kPlanet].Name, rtd(planet_info[kPlanet].ra), rtd(planet_info[kPlanet].dec));
@@ -336,9 +349,9 @@ void plotPlanets(void)
         if ((iX >= 0 && iX <= 479) &&(iY >= 0 && iY <= 271))
         {
             nSize = pp_data[kPlanet].Size;
-            if (kPlanet == SUN)
+            if ((kPlanet == SUN) || (kPlanet == MOON))
             {
-                // Just draw sun without label
+                // Just draw object without label
                 gfx_CircleFilled(iX, iY, abs(nSize), pp_data[kPlanet].Color);
             } else {
                 gfx_Circle(iX, iY, nSize, pp_data[kPlanet].Color);
@@ -346,7 +359,9 @@ void plotPlanets(void)
                     gfx_Ellipse(iX, iY, 6, 2, YELLOW);    //Saturn rings
                 // Add label
                 gfx_MoveTo(iX + nSize + 1, iY + nSize + 1);
+                txt_Opacity(TRANSPARENT);
                 putStr(pp_data[kPlanet].Name);
+                txt_Opacity(OPAQUE);
             }
         }
     }
@@ -358,130 +373,48 @@ void plotPlanets(void)
 
 //-------------------------------------------------------------------------------
 
-void drawAzAltGrid(int gType)
+void drawAzAltGrid(void)
 {
     int x, y;
-    double m, step = 1.0;
+    double step = 1.0;
+    double az, alt;
 
     // Draw some Alt-Az lines
-    switch (gType)
-    {
-    case 0:
-        // Use circles (not really functional)
-        gfx_ClipWindow(0, 0, 479, 115);
-        gfx_Clipping(ON);
-        gfx_Circle(239, -171, 260, DARKOLIVEGREEN);     //+60 ALT
-        gfx_Clipping(OFF);
+    gfx_ClipWindow(0, 0, 479, 271);
+    gfx_Clipping(ON);
 
-        gfx_ClipWindow(0, 0, 479, 250);
-        gfx_Clipping(ON);
-        gfx_Circle(239, -465, 644, DARKOLIVEGREEN);     //+30 ALT
-        gfx_Clipping(OFF);
-
-        gfx_ClipWindow(239, 0, 479, 271);
-        gfx_Clipping(ON);
-        gfx_Circle(-120, 271, 490, DARKOLIVEGREEN);     //+30 AZ
-        gfx_Clipping(OFF);
-
-        gfx_ClipWindow(239, 0, 479, 271);
-        gfx_Clipping(ON);
-        gfx_Circle(19, 271, 478, DARKOLIVEGREEN);       //+60 AZ
-        gfx_Clipping(OFF);
-
-        gfx_ClipWindow(0, 0, 239, 271);
-        gfx_Clipping(ON);
-        gfx_Circle(599, 271, 490, DARKOLIVEGREEN);      //-30 AZ
-        gfx_Clipping(OFF);
-
-        gfx_ClipWindow(0, 0, 239, 271);
-        gfx_Clipping(ON);
-        gfx_Circle(460, 271, 478, DARKOLIVEGREEN);      //-60 AZ
-        gfx_Clipping(OFF);
-        break;
-
-    case 1:
-        // Some screen layout testing
-
-        gfx_ClipWindow(0, 0, 479, 271);
-        gfx_Clipping(ON);
-
-        gfx_Set(OBJECT_COLOUR, DARKOLIVEGREEN);
-
-        // 1. Draw arc at +/-90 AZ from 0 - 90 ALT
-        XYFromAzAlt(dtr(90.0), dtr(0), &x, &y);
-        gfx_MoveTo(x, y);
-        for (m = 1.0; m < 90.0; m += step)
-        {
-            XYFromAzAlt(dtr(90.0), dtr(m), &x, &y);
-            gfx_LineTo(x, y);
-        }
-
-        XYFromAzAlt(dtr(-90.0), dtr(0), &x, &y);
-        gfx_MoveTo(x, y);
-        for (m = 1.0; m < 90.0; m += step)
-        {
-            XYFromAzAlt(dtr(-90.0), dtr(m), &x, &y);
-            gfx_LineTo(x, y);
-        }
-
-        // 2. Draw arc at +/-60 AZ from 0 - 90 ALT
-        XYFromAzAlt(dtr(60.0), dtr(0), &x, &y);
-        gfx_MoveTo(x, y);
-        for (m = 1.0; m < 90.0; m += step)
-        {
-            XYFromAzAlt(dtr(60.0), dtr(m), &x, &y);
-            gfx_LineTo(x, y);
-        }
-
-        XYFromAzAlt(dtr(-60.0), dtr(0), &x, &y);
-        gfx_MoveTo(x, y);
-        for (m = 1.0; m < 90.0; m += step)
-        {
-            XYFromAzAlt(dtr(-60.0), dtr(m), &x, &y);
-            gfx_LineTo(x, y);
-        }
-
-        // 3. Draw arc at +/-30 AZ from 0 - 90 ALT
-        XYFromAzAlt(dtr(30.0), dtr(0), &x, &y);
-        gfx_MoveTo(x, y);
-        for (m = 1.0; m < 90.0; m += step)
-        {
-            XYFromAzAlt(dtr(30.0), dtr(m), &x, &y);
-            gfx_LineTo(x, y);
-        }
-
-        XYFromAzAlt(dtr(-30.0), dtr(0), &x, &y);
-        gfx_MoveTo(x, y);
-        for (m = 1.0; m < 90.0; m += step)
-        {
-            XYFromAzAlt(dtr(-30.0), dtr(m), &x, &y);
-            gfx_LineTo(x, y);
-        }
-
-        // 4. Draw arc at 60 ALT from -100 to +100 AZ
-        XYFromAzAlt(dtr(-100.0), dtr(60.0), &x, &y);
-        gfx_MoveTo(x, y);
-        for (m = -99.0; m < 100.0; m += step)
-        {
-            XYFromAzAlt(dtr(m), dtr(60.0), &x, &y);
-            gfx_LineTo(x, y);
-        }
-
-        // 5. Draw arc at 30 ALT from -90 to +90 AZ
-        XYFromAzAlt(dtr(-90.0), dtr(30.0), &x, &y);
-        gfx_MoveTo(x, y);
-        for (m = -89.0; m < 90.0; m += step)
-        {
-            XYFromAzAlt(dtr(m), dtr(30.0), &x, &y);
-            gfx_LineTo(x, y);
-        }
-
-        gfx_Clipping(OFF);
-        break;
-    }
+    gfx_Set(OBJECT_COLOUR, DARKOLIVEGREEN);
 
     // 0 AZ reference
     gfx_Vline(239, 0, 271, DARKOLIVEGREEN);
+
+    // 1. Draw arc at -120..120 AZ from 0 - 90 ALT
+    for (az = -120; az <= 120; az += 30.0)
+    {
+        alt = 0;
+        XYFromAzAlt(dtr(az), dtr(0), &x, &y);
+        gfx_MoveTo(x, y);
+        for (alt = alt + step; alt <= 90.0; alt += step)
+        {
+            XYFromAzAlt(dtr(az), dtr(alt), &x, &y);
+            gfx_LineTo(x, y);
+        }
+    }
+
+    // 2. Draw arc at 30..60 ALT from -120 to +120 AZ
+    for (alt = 30.0; alt < 90.0; alt += 30.0)
+    {
+        az = -120.0;
+        XYFromAzAlt(dtr(az), dtr(alt), &x, &y);
+        gfx_MoveTo(x, y);
+        for (az = az + step; az <= 120.0; az += step)
+        {
+            XYFromAzAlt(dtr(az), dtr(alt), &x, &y);
+            gfx_LineTo(x, y);
+        }
+    }
+
+    gfx_Clipping(OFF);
 
     return;
 }
@@ -530,47 +463,147 @@ void checkCuckoo(void)
 
 //-------------------------------------------------------------------------------
 
+void parse_options(int argc, char **argv)
+{
+    char *cptr;
+    int opt, idx;
+
+    optind = 0;
+    while ((opt = getopt(argc, argv, "?cf:hl:qs:tw:z:")) != -1)
+    {
+        switch (opt) {
+        // Silence the bird
+        case 'q':
+            bChimes = FALSE;
+            break;
+
+        // Draw constellation lines
+        case 'c':
+            bCLines = TRUE;
+            break;
+
+        // Location of starmap file
+        case 'f':
+            strcpy(starMap, optarg);
+            break;
+
+        // Don't get date/time from LCD clock
+        case 't':
+            useSystemTime = TRUE;
+            break;
+
+        // Serial port speed
+        case 's':
+            comspeed = atoi(optarg);
+            for (idx = 0; idx < maxrates; idx++)
+            {
+                if (baudrates[idx] == comspeed)
+                    break;
+            }
+            if (idx == maxrates)
+            {
+                printf("Invalid baud rate: %s\n", optarg);
+                exit(EXIT_FAILURE);
+            }
+            // 4D speed index
+            comspeed = idx;
+            break;
+
+        // Observer location
+        case 'l':
+            Latitude = dtr(strtod(optarg, &cptr));
+            if ((cptr != optarg) && (*cptr == ','))
+            {
+                optarg = ++cptr;
+                Longitude = dtr(strtod(optarg, &cptr));
+                if (cptr != optarg)
+                    break;
+            }
+            // Lat/Long error
+            printf("Invalid latitude/longitude pair: %s\n", optarg);
+            exit(EXIT_FAILURE);
+            break;
+
+        // Sleep / Wake times
+        case 'w':
+            if (strptime(optarg, "%H:%M", &tmLocal) == NULL)
+            {
+                printf("Bad wake time value: '%s\n", optarg);
+                exit(EXIT_FAILURE);
+            }
+            wakeHR = tmLocal.tm_hour;
+            wakeMin = tmLocal.tm_min;
+            break;
+
+        case 'z':
+            if (strptime(optarg, "%H:%M", &tmLocal) == NULL)
+            {
+                printf("Bad sleep time value: '%s'\n", optarg);
+                exit(EXIT_FAILURE);
+            }
+            sleepHR = tmLocal.tm_hour;
+            sleepMin = tmLocal.tm_min;
+            break;
+
+        // Give help and quit
+        case 'h':
+        case '?':
+            Usage();
+            exit(EXIT_SUCCESS);
+
+        // Unrecognized option - give help and fail
+        default:
+            Usage();
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    return;
+}
+
 int main(int argc, char **argv)
 {
-	int comspeed;
-	int idx, rc;
-	char comport[20];
+	int rc;
 	int currentMin = 0;
 	int bTouched;
-
-	WORD sHdl;
 	WORD LCDSave = 0;
+	WORD sHdl;
+	struct stat mstat;
 
-	Callback4D = errCallback;  // NULL ;
-	Error_Abort4D = TRUE ;  // abort on detected 4D Serial error
+	TimeLimit4D = 2000;
+	Callback4D = errCallback;
+	// abort on detected 4D Serial error
+	Error_Abort4D = TRUE ;
 
-	if (argc == 1) {
-		/* If no arguments we call the Usage routine and exit */
-		Usage(argv[0]);
-		return 1;
-	}
+    // Default options
+    bChimes = TRUE;
+    bCLines = FALSE;
+    useSystemTime = FALSE;
+    strcpy(comport, SERIALDEFAULT);
+    strcpy(starMap, HYGDEFAULT);
+    comspeed = BAUD_9600;
 
-    // Must have device name
-    strcpy(comport, argv[1]);
+    parse_options(argc, argv);
 
-	if (argc <= 2)
-		comspeed = BAUD_9600;
-	else
-	{
-        comspeed = atoi(argv[2]);
-		for (idx = 0; idx < maxrates; idx++)
-		{
-			if (baudrates[idx] == comspeed)
-				break;
-		}
-		if (idx == maxrates)
-		{
-			printf("Invalid baud rate %s", argv[2]);
-			return 1;
-		}
-		// 4D speed index
-		comspeed = idx;
-	}
+    // Check for too many args
+    if (argc > (optind + 1))
+    {
+        printf("Too many args supplied\n");
+        Usage();
+        exit(EXIT_FAILURE);
+    }
+
+    // Check for optional device name
+    if (argc > optind)
+        strcpy(comport, argv[optind]);
+
+    // Check if DB exists
+    rc = stat(starMap, &mstat);
+    if (rc < 0)
+    {
+        printf("Cannot locate starmap DB: %s\nError (%d) - %s\n", starMap, errno, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
 
     // Want to see any FP errors
     feenableexcept(FE_INVALID   |
@@ -580,57 +613,60 @@ int main(int argc, char **argv)
     feclearexcept(FE_ALL_EXCEPT);
 
 restart:
-    TimeLimit4D = 2000;
     // Open display serial port
     rc = OpenComm(comport, comspeed);
     if (rc != 0)
     {
-        printf("Error %d Opening %s", rc, comport);
-        return 2;
+        printf("Error %d Opening: %s - %s\n", errno, comport, strerror(errno));
+        exit(EXIT_FAILURE);
     }
 
     // Screen on!
     gfx_Contrast(15);
 
-    // Get/set system clock from RTC on uLCD
-
-    // Run file / wait for ACK
-    TimeLimit4D = 5000;
-    rc = file_Run("rtcset.4xe", 0, NULL);
-    if (rc != 0)
+    // Default is use DS1307 on LCD
+    if (!useSystemTime)
     {
-        printf("Error returned from rtcset = %d", rc);
-        return 2;
-    }
+        // Get/set system clock from RTC on uLCD
 
-    // Exit from RTC setup - read clock
-    // Create global string value to be filled in
-    sHdl = writeString(0, "yy-mm-dd hh:mm:ss");
-    rc = file_Run("clockrd.4fn", 1, &sHdl);
-    if (rc != 0)
-    {
-        printf("Error returned from clockrd = %d", rc);
-        return 2;
-    }
+        // Run file / wait for ACK
+        TimeLimit4D = 5000;
+        rc = file_Run("rtcset.4xe", 0, NULL);
+        if (rc != 0)
+        {
+            printf("Error returned from rtcset = %d\n", rc);
+            exit(EXIT_FAILURE);
+        }
 
-    // Fetch returned string
-    readString(sHdl, rtcval);
+        // Exit from RTC setup - read clock
+        // Create global string value to be filled in
+        sHdl = writeString(0, "yy-mm-dd hh:mm:ss");
+        rc = file_Run("clockrd.4fn", 1, &sHdl);
+        if (rc != 0)
+        {
+            printf("Error returned from clockrd = %d\n", rc);
+            exit(EXIT_FAILURE);
+        }
 
-    // Parse GMT date-time
-    memset(&tmGMT, 0, sizeof(tmGMT));
-    if (strptime(rtcval, "%y-%m-%d %H:%M:%S", &tmGMT) == NULL)
-    {
-        printf("Bad date/time value: '%s'", rtcval);
-        return 2;
-    }
+        // Fetch returned string
+        readString(sHdl, rtcval);
 
-    // Convert tm to t_time, UTC -> local
-    ttime = timegm(&tmGMT);
-    // Set system time (if root)
-    rc = stime(&ttime);
-    if (rc != 0)
-    {
-        printf("Time not set - not root?\n");
+        // Parse GMT date-time
+        memset(&tmGMT, 0, sizeof(tmGMT));
+        if (strptime(rtcval, "%y-%m-%d %H:%M:%S", &tmGMT) == NULL)
+        {
+            printf("LCD returned bad date/time value: '%s'", rtcval);
+            exit(EXIT_FAILURE);
+        }
+
+        // Convert tm to t_time, UTC -> local
+        ttime = timegm(&tmGMT);
+        // Set system time (if root)
+        rc = stime(&ttime);
+        if (rc != 0)
+        {
+            printf("Time not set - not root?\n");
+        }
     }
 
     // Reset to normal 2sec timeout
@@ -658,7 +694,7 @@ restart:
             txt_BGcolour(BLACK);
 
             // Screen grid
-            drawAzAltGrid(1);
+            drawAzAltGrid();
 
             // Get date/time, setup coords
             ttime = time(NULL);
@@ -674,7 +710,7 @@ restart:
             calcPlanets(JD, Latitude, Longitude, TRUE);
 
             // Plot the star database (no constellation lines)
-            plotStarField(HYGFILE, FALSE);
+            plotStarField(starMap, bCLines);
 
             // Now plot the planets
             plotPlanets();
@@ -724,7 +760,7 @@ restart:
                 break;
 
             // Reset nap count and turn on display
-            napCount = NAPMINS;
+            napCount = napMins;
             gfx_Contrast(LCDSave);
             LCDSave = 0;
         } else {
@@ -735,7 +771,7 @@ restart:
                 if (!sleeping)
                 {
                     // Time to sleep?
-                    if ((tmLocal.tm_hour == SLEEPHR) && (tmLocal.tm_min == SLEEPMIN))
+                    if ((tmLocal.tm_hour == sleepHR) && (tmLocal.tm_min == sleepMin))
                     {
                         // Time to turn-off display and wait for touch
                         LCDSave = gfx_Contrast(OFF);
@@ -750,7 +786,7 @@ restart:
                 }
             } else {
                 // Wakeup display time?
-                if (sleeping && ((tmLocal.tm_hour == WAKEHR) && (tmLocal.tm_min == WAKEMIN)))
+                if (sleeping && ((tmLocal.tm_hour == wakeHR) && (tmLocal.tm_min == wakeMin)))
                 {
                     gfx_Contrast(LCDSave);
                     LCDSave = 0;
@@ -760,7 +796,8 @@ restart:
         }
 
         // Maybe time to announce hours
-        checkCuckoo();
+        if (bChimes)
+            checkCuckoo();
 
         // Loop back and re-draw current time
     }

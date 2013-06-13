@@ -38,19 +38,13 @@ int(*Callback4D) (int, unsigned char) ;                            // or indeter
 
 int OpenComm(char *sDeviceName, int newrate)
 {
-    char sPortName[32];
     int nMode = O_RDWR | O_NOCTTY | O_NDELAY;
     int k, ch, tSave;
 
-    sprintf(sPortName, "/dev/%s", sDeviceName);
-
 #ifndef COMMS_TEST
-    fdComm = open(sPortName, nMode);
+    fdComm = open(sDeviceName, nMode);
     if (fdComm < 0)
-    {
-        printf("open error %d %s\n", errno, strerror(errno));
         return fdComm;
-    }
 
     // Set the line to RAW
     SetBaudrate(newrate);

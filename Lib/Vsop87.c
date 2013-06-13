@@ -32,7 +32,7 @@ void calcPlanets(double jd, double siteLat, double siteLon, int qPC)
 	latsin = sin(siteLat);
 	latcos = cos(siteLat);
 	for (i = 0; i <= 6; i++) {
-		planet_info[i].lha = fixangr(dtr(igmst * 15) - siteLon - planet_info[i].ra);
+		planet_info[i].lha = fixangr(dtr(igmst * 15) + siteLon - planet_info[i].ra);
 		planet_info[i].az = atan2(sin(planet_info[i].lha),
                                   cos(planet_info[i].lha) * latsin - tan(planet_info[i].dec) * latcos);
 		planet_info[i].alt = asin(latsin * sin(planet_info[i].dec) +
