@@ -217,8 +217,11 @@ void dpyTime(void)
     // Font attrs
     txt_FontID(FONT2);
     txt_FGcolour(LIGHTBLUE);
+    txt_BGcolour(BLACK);
+    txt_Opacity(OPAQUE);
+
     // Display text in lower left corner
-    gfx_MoveTo(6, 272 - charheight('9') - 2);
+    gfx_MoveTo(8, 272 - charheight('9') - 2);
     putStr(tmpBuf);
 
     return;
@@ -387,10 +390,13 @@ void plotPlanets(void)
                 gfx_Circle(iX, iY, nSize, pp_data[kPlanet].Color);
                 if (kPlanet == SATURN)
                     gfx_Ellipse(iX, iY, 6, 2, YELLOW);    //Saturn rings
-                // Add label
-                gfx_MoveTo(iX + nSize + 1, iY + nSize + 1);
+                // Select font & style
                 txt_FontID(FONT1);
+                txt_BGcolour(BLACK);
                 txt_FGcolour(WHITE);
+		txt_Opacity(TRANSPARENT);
+                // Add planet label
+                gfx_MoveTo(iX + nSize + 1, iY + nSize + 1);
                 putStr(pp_data[kPlanet].Name);
             }
         }
@@ -767,12 +773,6 @@ restart:
         {
             // Start by clearing display
             gfx_Cls();
-
-            // Select font & style
-            txt_FontID(FONT1);
-            txt_FGcolour(LIGHTBLUE);
-            txt_BGcolour(BLACK);
-            txt_Opacity(TRANSPARENT);
 
             // Screen grid
             drawAzAltGrid();
