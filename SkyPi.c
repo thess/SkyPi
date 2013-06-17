@@ -37,9 +37,10 @@
 #include "Include/Picaso_const4D.h"
 #include "Include/Picaso_Serial_4DLibrary.h"
 
-// Scale projection to display (180w x 90h)
+// Scale projection to display (480w x 272h)
 #define YPixRad  (272 / dtr(90))
-#define XPixRad  (480 / dtr(180))
+//#define XPixRad  (480 / dtr(120))
+#define XPixRad YPixRad
 
 #define SERIALDEFAULT   "/dev/ttyAMA0"
 static int comspeed;
@@ -68,6 +69,9 @@ static double  JD;
 // LatLong of Hudson, MA (in radians)
 static double Latitude = dtr(42.38050);
 static double Longitude = dtr(-71.53285);
+// LatLong of Majuro, MH
+//static double Latitude = dtr(7.1429);
+//static double Longitude = dtr(171.0396);
 
 // Sleep and cuckoo control
 static int napCount;
@@ -82,21 +86,24 @@ static int sleepMin = 30;
 static int wakeHR   = 06;
 static int wakeMin  = 30;
 
+static int bDaemonize;
+
 //-------------------------------------------------------------------------------
 
 void Usage(void)
 {
-    fprintf(stderr, "RaspPi Realtime Sky Map V%d.%d\n\n", VERSION_MAJOR, VERSION_MINOR);
-    fprintf(stderr, "SkyPi [options] [device]\n\n");
-    fprintf(stderr, " device    Comms port to which display is attached (default: %s)\n", SERIALDEFAULT);
-    fprintf(stderr, " options:\n");
-    fprintf(stderr, "   -f file     Path name of starmap DB (default: %s)\n", HYGDEFAULT);
-    fprintf(stderr, "   -l lat,long Observer decimal latitude & logitude\n");
-    fprintf(stderr, "   -q          Disable cuckoo chimes\n");
-    fprintf(stderr, "   -s speed    Serial device baudrate (default: 9600)\n");
-    fprintf(stderr, "   -t          Use system time instead of LCD clock\n");
-    fprintf(stderr, "   -w hh:mm    Display wake time (default: 06:30)\n");
-    fprintf(stderr, "   -z hh:mm    Display sleep time (default: 23:30)\n");
+    printf("RaspPi Realtime Sky Map V%d.%d\n\n", VERSION_MAJOR, VERSION_MINOR);
+    printf("SkyPi [options] [device]\n\n");
+    printf(" device    Comms port to which display is attached (default: %s)\n", SERIALDEFAULT);
+    printf(" options:\n");
+    printf("   -f file     Path name of starmap DB (default: %s)\n", HYGDEFAULT);
+    printf("   -l lat,long Observer decimal latitude & logitude\n");
+    printf("   -q          Disable cuckoo chimes\n");
+    printf("   -s speed    Serial device baudrate (default: 9600)\n");
+    printf("   -t          Use system time instead of LCD clock\n");
+    printf("   -w hh:mm    Display wake time (default: 06:30)\n");
+    printf("   -z hh:mm    Display sleep time (default: 23:30)\n");
+    printf("   -B          Run in background (daemonize)\n");
 
     return;
 }
@@ -136,8 +143,8 @@ void XYFromAzAlt(double az, double alt, int *iX, int *iY)
         X = Y = 0.0;
     }
 
-    *iX = 239 + (int)round(X);      // center on screen
-    *iY = 271 - (int)round(Y);      // inverty Y coordinate
+    *iX = 240 + (int)floor(X);      // center on screen
+    *iY = 271 - (int)floor(Y);      // inverty Y coordinate
 
     return;
 }
@@ -154,7 +161,7 @@ void AzAlt(double ra, double dec, double *az, double *alt)
 	latsin = sin(Latitude);
 	latcos = cos(Latitude);
 
-    lha = fixangr(dtr(igmst * 15) + Longitude - ra);
+    lha = fixangr(dtr(igmst * 15.0) + Longitude - ra);
     *az = atan2(sin(lha), cos(lha) * latsin - tan(dec) * latcos);
     *alt = asin(latsin * sin(dec) + latcos * cos(dec) * cos(lha));
 
@@ -192,6 +199,29 @@ int csv_parse(char *sLine, char *sElems[], int nElem)
     }
 
 	return  n;
+}
+
+//-------------------------------------------------------------------------------
+// dpyTime    Display time at bottom of screen
+
+void dpyTime(void)
+{
+    char tmpBuf[16];
+
+    // Get current time
+    ttime = time(NULL);
+    localtime_r(&ttime, &tmLocal);
+
+    // Format it
+    sprintf(tmpBuf, "%02d:%02d %s", tmLocal.tm_hour, tmLocal.tm_min, tmLocal.tm_zone);
+    // Font attrs
+    txt_FontID(FONT2);
+    txt_FGcolour(LIGHTBLUE);
+    // Display text in lower left corner
+    gfx_MoveTo(6, 272 - charheight('9') - 2);
+    putStr(tmpBuf);
+
+    return;
 }
 
 //-------------------------------------------------------------------------------
@@ -359,9 +389,9 @@ void plotPlanets(void)
                     gfx_Ellipse(iX, iY, 6, 2, YELLOW);    //Saturn rings
                 // Add label
                 gfx_MoveTo(iX + nSize + 1, iY + nSize + 1);
-                txt_Opacity(TRANSPARENT);
+                txt_FontID(FONT1);
+                txt_FGcolour(WHITE);
                 putStr(pp_data[kPlanet].Name);
-                txt_Opacity(OPAQUE);
             }
         }
     }
@@ -376,8 +406,10 @@ void plotPlanets(void)
 void drawAzAltGrid(void)
 {
     int x, y;
-    double step = 1.0;
+    double step = 2.0;
     double az, alt;
+    double eps, eqra, eqdec, eqlat;
+    double esin, ecos;
 
     // Draw some Alt-Az lines
     gfx_ClipWindow(0, 0, 479, 271);
@@ -385,8 +417,8 @@ void drawAzAltGrid(void)
 
     gfx_Set(OBJECT_COLOUR, DARKOLIVEGREEN);
 
-    // 0 AZ reference
-    gfx_Vline(239, 0, 271, DARKOLIVEGREEN);
+    // 0 AZ reference (Facing south)
+    //gfx_Vline(239, 0, 271, DARKOLIVEGREEN);
 
     // 1. Draw arc at -120..120 AZ from 0 - 90 ALT
     for (az = -120; az <= 120; az += 30.0)
@@ -401,17 +433,39 @@ void drawAzAltGrid(void)
         }
     }
 
-    // 2. Draw arc at 30..60 ALT from -120 to +120 AZ
-    for (alt = 30.0; alt < 90.0; alt += 30.0)
+    // 2. Draw arc at 15..75 ALT from -150 to +150 AZ
+    for (alt = 15.0; alt <= 90.0; alt += 15.0)
     {
-        az = -120.0;
+        az = -150.0;
         XYFromAzAlt(dtr(az), dtr(alt), &x, &y);
         gfx_MoveTo(x, y);
-        for (az = az + step; az <= 120.0; az += step)
+        for (az = az + step; az <= 150.0; az += step)
         {
             XYFromAzAlt(dtr(az), dtr(alt), &x, &y);
             gfx_LineTo(x, y);
         }
+    }
+
+    // 3. Draw ecliptic
+    gfx_Set(OBJECT_COLOUR, SALMON);
+
+    // Get current obliquity of ecliptic
+    eps = dtr(obliqeq(JD));
+    esin = sin(eps);
+    ecos = cos(eps);
+    // ecliptic intersects equator at 0 longitude
+    AzAlt(0.0, 0.0, &az, &alt);
+    XYFromAzAlt(az, alt, &x, &y);
+    gfx_MoveTo(x, y);
+
+    for (eqlat = 0; eqlat <= dtr(360.0); eqlat += dtr(step))
+    {
+        eqra = fixangr(atan2(ecos * sin(eqlat), cos(eqlat)));
+        eqdec = asin(esin * sin(eqlat));
+
+        AzAlt(eqra, eqdec, &az, &alt);
+        XYFromAzAlt(az, alt, &x, &y);
+        gfx_LineTo(x, y);
     }
 
     gfx_Clipping(OFF);
@@ -469,7 +523,7 @@ void parse_options(int argc, char **argv)
     int opt, idx;
 
     optind = 0;
-    while ((opt = getopt(argc, argv, "?cf:hl:qs:tw:z:")) != -1)
+    while ((opt = getopt(argc, argv, "?Bcf:hl:qs:tw:z:")) != -1)
     {
         switch (opt) {
         // Silence the bird
@@ -545,6 +599,10 @@ void parse_options(int argc, char **argv)
             sleepMin = tmLocal.tm_min;
             break;
 
+        case 'B':
+            bDaemonize = TRUE;
+            break;
+
         // Give help and quit
         case 'h':
         case '?':
@@ -578,6 +636,7 @@ int main(int argc, char **argv)
     // Default options
     bChimes = TRUE;
     bCLines = FALSE;
+    bDaemonize = FALSE;
     useSystemTime = FALSE;
     strcpy(comport, SERIALDEFAULT);
     strcpy(starMap, HYGDEFAULT);
@@ -603,6 +662,16 @@ int main(int argc, char **argv)
     {
         printf("Cannot locate starmap DB: %s\nError (%d) - %s\n", starMap, errno, strerror(errno));
         exit(EXIT_FAILURE);
+    }
+
+    // Run in background?
+    if (bDaemonize)
+    {
+        printf("Detaching...\n");
+        rc = daemon(0, 0);
+        // Continue even if detach error
+        if (rc < 0)
+            printf("Unable to run in background - %s\n", strerror(errno));
     }
 
     // Want to see any FP errors
@@ -683,28 +752,30 @@ restart:
     // This is the main display loop
     while (TRUE)
     {
+        // Get date/time, setup coords
+        ttime = time(NULL);
+        gmtime_r(&ttime, &tmGMT);
+
+        // Save current display time
+        currentMin = tmGMT.tm_min;
+
+        // Get Julian date inf
+        JD = jtime(&tmGMT);
+
         // Only if display enabled
         if (LCDSave == 0)
         {
             // Start by clearing display
             gfx_Cls();
 
+            // Select font & style
             txt_FontID(FONT1);
-            txt_FGcolour(WHITE);
+            txt_FGcolour(LIGHTBLUE);
             txt_BGcolour(BLACK);
+            txt_Opacity(TRANSPARENT);
 
             // Screen grid
             drawAzAltGrid();
-
-            // Get date/time, setup coords
-            ttime = time(NULL);
-            gmtime_r(&ttime, &tmGMT);
-
-            // Save current display time
-            currentMin = tmGMT.tm_min;
-
-            // Get Julian date inf
-            JD = jtime(&tmGMT);
 
             // Calculate Sun, Moon, etc. (QuickPlanetCalc := true)
             calcPlanets(JD, Latitude, Longitude, TRUE);
@@ -714,6 +785,9 @@ restart:
 
             // Now plot the planets
             plotPlanets();
+
+            // Show current time
+            dpyTime();
         }
 
         // Enable full-screen touch

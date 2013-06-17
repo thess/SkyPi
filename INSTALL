@@ -1,5 +1,5 @@
 Calculation of Sun, Moon and planet positions and miscellaneous astronomical routines
-were borrowed from Home Planet by John Walker
+were borrowed from Home Planet by John Walker (http://www.fourmilab.ch)
 
 Build and installation instructions for SkyPi
 =============================================
@@ -22,6 +22,7 @@ $ sudo make install
 # Copy SkyPi to /usr/local/bin
 # Copy data/hyg11.csv to /usr/local/lib/SkyPi
 
+
 Prepare micro SD card for display (FAT16, 2GB Max)
 ==================================================
 
@@ -35,6 +36,20 @@ Prepare micro SD card for display (FAT16, 2GB Max)
    - keypad/keypad.dat, keypad/keypad.gci
    - lcddigits/digits.dat, lcddigits/digits.gci
    - data/cuckoo.wav
+
+
+Set SPE default to 115200 on display
+====================================
+
+The default baud rate of the LCD is 9600. SkyPi will indeed operate at this
+speed though things will a bit slow. I recommend changing the default baud
+rate to 115200 using 4D Workshop. This is accomplished by:
+
+1. Seclect Options, Serial and set the baud rate to 115200
+2. Re-load SPE via Serial project, Tools, SPE load.
+
+When the display powers up is should now say "Comms 115200".
+
 
 Command-line options
 ====================
@@ -52,4 +67,4 @@ SkyPi [options] [device]
    -t          Use system time instead of LCD clock
    -w hh:mm    Display wake time (default: 06:30)
    -z hh:mm    Display sleep time (default: 23:30)
-
+   -B          Run in background (daemonize)

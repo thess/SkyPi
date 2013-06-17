@@ -63,6 +63,7 @@ int OpenComm(char *sDeviceName, int newrate)
     {
         ch = 'X';
         write(fdComm, (unsigned char *)&ch, 1);
+        tcflush(fdComm, TCOFLUSH);
         ReadSerPort((unsigned char *)&ch, 1);
         if (ch == 0x15)
             break ;
