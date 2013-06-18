@@ -1,26 +1,27 @@
-Calculation of Sun, Moon and planet positions and miscellaneous astronomical routines
-were borrowed from Home Planet by John Walker (http://www.fourmilab.ch)
+Acknowledgement: Calculation of Sun, Moon and planet positions and miscellaneous
+astronomical routines were borrowed from the HomePlanet sources by John Walker
+(http://www.fourmilab.ch).
 
 Build and installation instructions for SkyPi
 =============================================
 
-It is possible to build and execute SkyPi on any Linux system such as Ubuntu with the
-display connected via a serial USB adapter.
+It is possible to build and execute SkyPi on any Linux system, such as Ubuntu,
+with the display connected via a serial USB adapter.
 
 Minimal prereqs: build-essential, cmake
 
-$ mkdir build
-$ cd build
-$ cmake ..
-$ make
+    $ mkdir build
+    $ cd build
+    $ cmake ..
+    $ make
 
 
 [default installation]
-$ sudo make install
+    $ sudo make install
 
-[manually install]
-# Copy SkyPi to /usr/local/bin
-# Copy data/hyg11.csv to /usr/local/lib/SkyPi
+[manual installation]
+- Copy SkyPi to /usr/local/bin & make executable
+- Copy data/hyg11.csv to /usr/local/lib/SkyPi/starmap.csv
 
 
 Prepare micro SD card for display (FAT16, 2GB Max)
@@ -68,3 +69,44 @@ SkyPi [options] [device]
    -w hh:mm    Display wake time (default: 06:30)
    -z hh:mm    Display sleep time (default: 23:30)
    -B          Run in background (daemonize)
+
+
+SkyPi setup and operation
+=========================
+
+The RPi system date-time and timezone information needs to be set. Timezone information
+may be setup by invoking 'raspi-config' or 'dpkg-reconfigure tzdata'. If you have a
+DS1307 connected to the LCD, date-time can be set thru the initial startup display on
+the LCD. Otherwise, specifiy the '-t' command-line option to bypass the set-time screen
+and to use the current system time however it was set (NTP, GPS, etc).
+
+If you have a DS1307 RTC (Adafruit, Sparkfun, or equiv) connected to the LCD, you can
+thne use the built-in time and date setup panel and keypad to set the time and date.
+Note: The time and date must be set to UTC (24hr clock).
+
+Each press of the 'Time' button will select a time field to be changed via the number
+keys. After setting the seconds field, press the 'Set' button to write to the RTC and
+start the clock.
+
+Each press of the 'Date' button will select a date filed to be changed via the number
+keys. The date field form is: mm:dd:yy. After setting the year field, press the 'Set'
+button to write the date to the RTC.
+
+Press the 'exit' button to exit setup and startup the sky map display.
+
+Pressing the display while the star map is displayed will reset the serial port and
+re-start setup if not deslected by '-t'. Otherwise, just restart the star map.
+
+Pressing the display while it is sleeping will re-enable the display. The display will
+go back to sleep after 30 minutes.
+
+The (optional) cuckoo will chime the hours (12hr clock) and once on each half-hour. It
+may be disable via the '-q' option. Feel free to replace the cuckoo.wav file on the
+LCD's SD card with you favorite noises.
+
+Autostart on boot may be accomplished by adding a simple command-line entry at theend
+of '/etc/rc.local'. Example:
+
+    # Launch SkyPi (sleep at 10:30pm)
+    /usr/local/bin/SkyPi -B -s 115200 -l 18.433551,-64.633290 -z 22:30
+
